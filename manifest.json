@@ -1,0 +1,11 @@
+{
+    "display_name": "人物檔案館",
+    "loading_order": 100,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "小曦 & 墨墨",
+    "version": "0.7.9",
+    "homePage": ""
+}
