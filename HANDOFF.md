@@ -14,6 +14,7 @@ char-archive/
 ├── manifest.json   擴充資訊（display_name、version）
 ├── index.js        全部邏輯，約 2600 行，單一 IIFE，沒有 import、沒有建置步驟
 ├── style.css       全部樣式，都掛在 #ca-root 底下；另有 #chat .ca-chip（訊息下方的小標籤）
+├── README.md       安裝與更新說明
 ├── HANDOFF.md      本文件
 ├── tests/mock-run.js     不開酒館也能跑的模擬測試
 └── tests/keep-recent.js  「留最近幾則不整理」的模擬測試
@@ -27,7 +28,7 @@ char-archive/
 - 酒館跑在使用者自己的 **Android 手機（Termux）** 上，路徑 `~/SillyTavern`，手機用 Chrome 開。電腦是連手機熱點登入。（之前在 Zeabur，已經搬走。）
 - 主要在**手機**上操作，所以畫面一定要在手機寬度下正常顯示。
 - LLM 用 OpenRouter。整理人物檔預設走「獨立 API」（OpenAI 相容端點），不吃主聊天的額度。
-- 安裝位置：用 `find ~/SillyTavern -type d -name char-archive` 找到現有的擴充資料夾，把三個檔案蓋過去即可。更新後要把酒館分頁完全關掉再開，確認標題旁的版本號。
+- 安裝：程式放在 GitHub `yolanda1027-sudo/char-archive` 的 `main` 分支，酒館用「安裝擴充功能」貼網址安裝，之後在「管理擴充功能」按更新。發版時把改動合進 `main` 即可。更新後要重新整理酒館頁面，確認標題旁的版本號。
 
 ## 3. 資料存放
 
