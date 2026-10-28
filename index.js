@@ -1,4 +1,4 @@
-/* 人物檔案館 v0.7.9 — SillyTavern 前端擴充
+/* 人物檔案館 v0.7.10 — SillyTavern 前端擴充
  * 追蹤出場人物、年齡與經歷變化、人際關係。資料存在每個聊天自己的 chat metadata。
  */
 (() => {
@@ -1182,6 +1182,8 @@
         }
     }
 
+    const keepCount = (st) => (st.mode === 'off' ? 0 : Math.max(0, Math.floor(Number(st.keepRecent) || 0)));
+    const needFloors = (st) => (st.mode === 'every' ? 1 : Math.max(1, Number(st.interval) || 1));
     // 保留最近 keep 則 AI 回覆不整理時，自動整理可以整理到哪一樓（-1＝還沒有）
     // 停在被保留的那幾則前面的那則 AI 回覆，後面的使用者訊息也一起留著
     function settledEnd(chat, keep) {
@@ -1191,6 +1193,17 @@
             if (n++ === keep) return i;
         }
         return -1;
+    }
+
+    // 有設定保留最近幾則回覆時：已經定下來、還沒整理的樓層累積夠了就整理
+    // 收到新回覆、或改了更新頻率／保留則數時檢查
+    function settleCheck() {
+        const st = settings();
+        const keep = keepCount(st);
+        if (!keep || !hasChat() || store().paused) return;
+        const end = settledEnd(ctx().chat, keep);
+        if (end >= 0 && end - store().lastFloor >= needFloors(st)) setTimeout(() => autoSettle(end), 300);
+        else renderChip();
     }
 
     // 自動整理比較早、已經定下來的樓層，直接寫入（有設定保留最近幾則回覆時用）
@@ -1472,16 +1485,9 @@
         if (s.paused) { renderChip(); return; } // 這個聊天暫停整理：不算、不寫
         if (s.pending && s.pending.floor < L) await commitPending('auto');
         if (st.mode === 'off') { renderChip(); return; }
-        const need = st.mode === 'every' ? 1 : Math.max(1, Number(st.interval) || 1);
-        const keep = Math.max(0, Math.floor(Number(st.keepRecent) || 0));
-        if (keep) {
-            // 最近 keep 則回覆先不整理，使用者回頭改最近的對話時才不會一直重新整理
-            const end = settledEnd(chat, keep);
-            if (end >= 0 && end - store().lastFloor >= need) setTimeout(() => autoSettle(end), 300);
-            else renderChip();
-            return;
-        }
-        if (L - store().lastFloor >= need) setTimeout(() => computePending(L, 'auto'), 300);
+        // 最近幾則回覆先不整理，使用者回頭改最近的對話時才不會一直重新整理
+        if (keepCount(st)) { settleCheck(); return; }
+        if (L - store().lastFloor >= needFloors(st)) setTimeout(() => computePending(L, 'auto'), 300);
         else renderChip();
     }
 
@@ -1520,8 +1526,8 @@
             } else if (!ent) {
                 if (st.mode === 'off' && !p) return;
                 if (L <= s.lastFloor) return;
-                const keep = Math.max(0, Math.floor(Number(st.keepRecent) || 0));
-                if (keep && st.mode !== 'off') text = `人物檔：最近 ${keep} 則回覆先不整理`;
+                const keep = keepCount(st);
+                if (keep) text = `人物檔：最近 ${keep} 則回覆先不整理`;
                 else { text = '人物檔：這則還沒整理，點我整理'; act = 'compute'; }
             } else if (ent.status === 'computing') text = '人物檔：整理中…';
             else if (ent.status === 'error') { text = '人物檔：整理失敗，點我重試'; act = 'compute'; }
@@ -1701,9 +1707,21 @@
             <button class="ca-btn" data-act="undo" ${s && s.snapshots.length && !busy ? '' : 'disabled'}>↶ 上一步</button>
             <button class="ca-btn" data-act="redo" ${s && s.redo.length && !busy ? '' : 'disabled'}>↷ 下一步</button>
         </div>
-        <div class="ca-status">${esc(status)}${st.mode === 'interval' && !s?.paused ? '（使用者和 AI 的訊息各算一樓）' : ''}${st.mode !== 'off' && Number(st.keepRecent) > 0 && !s?.paused ? `（最近 ${esc(st.keepRecent)} 則 AI 回覆先不整理，等它們變舊才寫入）` : ''}
+        <div class="ca-status">${esc(status)}${st.mode === 'interval' && !s?.paused ? '（使用者和 AI 的訊息各算一樓）' : ''}${s && !s.paused ? keepNote(st, s) : ''}
             ${s && !s.paused && !busy && now - s.lastFloor > (Number(st.maxMessages) || 20) ? `<button class="ca-link" data-act="backfill">還有 ${now - s.lastFloor} 樓沒整理，全部整理</button>` : ''}
         </div>`;
+    }
+
+    // 狀態列：保留最近幾則回覆時，說明還差多少樓才會自動整理
+    function keepNote(st, s) {
+        const keep = keepCount(st);
+        if (!keep) return '';
+        const head = `最近 ${keep} 則 AI 回覆先不整理`;
+        if (st.mode !== 'interval') return `（${head}，等它們變舊才寫入）`;
+        const end = settledEnd(ctx().chat || [], keep);
+        const ready = Math.max(0, end - s.lastFloor);
+        const need = needFloors(st);
+        return `（${head}；在那之前還沒整理的有 ${ready} 樓，${ready >= need ? '下一則回覆進來就整理' : `滿 ${need} 樓自動整理`}）`;
     }
 
     function shell(body) {
@@ -1716,7 +1734,7 @@
             </div>` : '';
         return `<div class="ca-panel" role="dialog" aria-modal="true" aria-label="人物檔案館">
             <div class="ca-head">
-                <div class="ca-title">人物檔案館 <span class="ca-ver">v0.7.9</span></div>
+                <div class="ca-title">人物檔案館 <span class="ca-ver">v0.7.10</span></div>
                 <button class="ca-icon" data-act="close" aria-label="關閉">✕</button>
             </div>
             <div class="ca-barwrap">${barHTML()}</div>
@@ -2556,7 +2574,7 @@
         else v = t.value.trim();
         st[k] = v;
         saveSettings();
-        if (k === 'mode' || k === 'keepRecent') { updateBar(); renderChip(); }
+        if (k === 'mode' || k === 'interval' || k === 'keepRecent') { updateBar(); settleCheck(); renderChip(); }
         if (k === 'apiMode') { render(); autoLoadModels(); }
         if (k === 'baseUrl' || k === 'apiKey') autoLoadModels();
         if (k.startsWith('inject') || k.startsWith('always')) refreshInjection();
@@ -2682,7 +2700,7 @@
         addSettingsDrawer();
         refreshInjection();
         setTimeout(renderChip, 500);
-        console.log(LOG, 'v0.7.9 loaded');
+        console.log(LOG, 'v0.7.10 loaded');
     }
 
     jQuery(() => {
