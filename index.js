@@ -1,4 +1,4 @@
-/* 人物檔案館 v0.7.10 — SillyTavern 前端擴充
+/* 人物檔案館 v0.7.11 — SillyTavern 前端擴充
  * 追蹤出場人物、年齡與經歷變化、人際關係。資料存在每個聊天自己的 chat metadata。
  */
 (() => {
@@ -21,6 +21,7 @@
         maxTokens: 4000,
         inject: true,
         injectDepth: 4,
+        injectPosition: 1,     // 1=聊天中（指定深度）、0=主提示詞之後、2=主提示詞之前
         injectScan: 3,
         injectMax: 8,
         // 對話中提到的人物，要送出哪些資料
@@ -1625,7 +1626,9 @@
         if (typeof c.setExtensionPrompt !== 'function') return;
         const st = settings();
         const f = { ...DEFAULTS.injFields, ...(st.injFields || {}) };
-        const set = (v) => c.setExtensionPrompt(PROMPT_KEY, v, 1, Number(st.injectDepth) || 4, false, 0);
+        // 有些預設會把「聊天中」的注入擠掉，這時改成「主提示詞之後」
+        const pos = [0, 1, 2].includes(Number(st.injectPosition)) ? Number(st.injectPosition) : 1;
+        const set = (v) => c.setExtensionPrompt(PROMPT_KEY, v, pos, Number(st.injectDepth) || 4, false, 0);
         if (!st.inject || !hasChat() || store()?.injectOff) { set(''); return; }
         const s = store();
         const chars = Object.values(s.characters);
@@ -1734,7 +1737,7 @@
             </div>` : '';
         return `<div class="ca-panel" role="dialog" aria-modal="true" aria-label="人物檔案館">
             <div class="ca-head">
-                <div class="ca-title">人物檔案館 <span class="ca-ver">v0.7.10</span></div>
+                <div class="ca-title">人物檔案館 <span class="ca-ver">v0.7.11</span></div>
                 <button class="ca-icon" data-act="close" aria-label="關閉">✕</button>
             </div>
             <div class="ca-barwrap">${barHTML()}</div>
@@ -2165,7 +2168,13 @@
                 <label class="ca-check"><input type="checkbox" data-set="alwaysViews" ${st.alwaysViews ? 'checked' : ''}> 所有人物的看法</label>
                 <label class="ca-check"><input type="checkbox" data-set="alwaysRoster" ${st.alwaysRoster ? 'checked' : ''}> 人物名單（名字和身分）</label>
                 <p class="ca-muted">人物很多時，每輪固定送出的內容會吃比較多 token。</p>
-                ${num('injectDepth', '插入深度', 0, 50, '數字越小越靠近最新訊息。')}
+                <label class="ca-set"><span>插入位置</span>
+                    <select class="ca-input" data-set="injectPosition">
+                        ${[['1', '聊天中（指定深度）'], ['0', '主提示詞之後'], ['2', '主提示詞之前']].map(([v, l]) => `<option value="${v}"${String(st.injectPosition ?? 1) === v ? ' selected' : ''}>${l}</option>`).join('')}
+                    </select>
+                    <small class="ca-muted">如果用的預設會把「聊天中」的注入擠掉（故事導航的注入檢查會顯示），改成「主提示詞之後」。</small>
+                </label>
+                ${num('injectDepth', '插入深度', 0, 50, '位置是「聊天中」時才有用。數字越小越靠近最新訊息。')}
             </div>
             <div class="ca-section">
                 <h3 class="ca-h3">備份</h3>
@@ -2700,7 +2709,7 @@
         addSettingsDrawer();
         refreshInjection();
         setTimeout(renderChip, 500);
-        console.log(LOG, 'v0.7.10 loaded');
+        console.log(LOG, 'v0.7.11 loaded');
     }
 
     jQuery(() => {
