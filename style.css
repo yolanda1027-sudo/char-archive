@@ -323,7 +323,24 @@
 }
 #ca-root .ca-addrel summary { cursor: pointer; color: var(--ca-rose-deep); font-weight: 700; }
 #ca-root .ca-addrel[open] summary { margin-bottom: 10px; }
-#ca-root .ca-addrow { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+#ca-root .ca-addrow { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 8px; }
+#ca-root .ca-addrow > span { padding-top: 10px; }
+/* 打字找人物 */
+#ca-root .ca-pick { flex: 1 1 0; min-width: 0; }
+#ca-root .ca-pickopts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+#ca-root .ca-pickopts:empty { display: none; }
+#ca-root .ca-pickopt {
+    border: 1px solid var(--ca-line);
+    background: var(--ca-blush);
+    color: var(--ca-ink);
+    border-radius: 999px;
+    padding: 4px 12px;
+    font-size: 14px;
+    cursor: pointer;
+}
+#ca-root .ca-pickopt small { color: var(--ca-soft); }
+#ca-root .ca-merge { margin-top: 26px; }
+#ca-root .ca-merge .ca-pick { margin-top: 8px; }
 #ca-root .ca-addrel .ca-btn { margin-top: 8px; }
 #ca-root .ca-relfilter { margin-bottom: 12px; }
 #ca-root .ca-rel {

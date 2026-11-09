@@ -1,4 +1,4 @@
-/* 人物檔案館 v0.7.11 — SillyTavern 前端擴充
+/* 人物檔案館 v0.7.12 — SillyTavern 前端擴充
  * 追蹤出場人物、年齡與經歷變化、人際關係。資料存在每個聊天自己的 chat metadata。
  */
 (() => {
@@ -1737,7 +1737,7 @@
             </div>` : '';
         return `<div class="ca-panel" role="dialog" aria-modal="true" aria-label="人物檔案館">
             <div class="ca-head">
-                <div class="ca-title">人物檔案館 <span class="ca-ver">v0.7.11</span></div>
+                <div class="ca-title">人物檔案館 <span class="ca-ver">v0.7.12</span></div>
                 <button class="ca-icon" data-act="close" aria-label="關閉">✕</button>
             </div>
             <div class="ca-barwrap">${barHTML()}</div>
@@ -1840,12 +1840,76 @@
                 ${!viewsOut.length && !viewsIn.length ? '<p class="ca-muted">還沒有看法紀錄。</p>' : ''}
                 <button class="ca-link" data-act="goto-rel" data-mode="views">到「看法」編輯</button>
             </div>
+            ${Object.keys(s.characters).length >= 2 ? `<details class="ca-addrel ca-merge">
+                <summary>合併到另一個人物</summary>
+                <p class="ca-muted">AI 把同一個人當成兩個人時用。「${esc(c.name)}」和它的別名會變成對方的別名，之後 AI 提到這些名字都會算成同一個人；經歷、關係、看法也會一起搬過去。</p>
+                ${charPicker('merge', '合併進誰', { exclude: [c.id] })}
+                <button class="ca-btn ca-primary" data-act="merge-char">合併</button>
+            </details>` : ''}
             <div class="ca-actions">
                 <button class="ca-btn ca-primary" data-act="save-char">儲存修改</button>
                 <button class="ca-btn" data-act="toggle-me">${mine ? '取消主角' : '設為主角'}</button>
                 <button class="ca-btn ca-danger" data-act="del-char">刪除這個人物</button>
             </div>
         </div>`;
+    }
+
+    // 用打字找人物：輸入名字或別名，下面列出符合的人物點選，不用在長長的選單裡滑
+    // 選到的人物 id 放在隱藏欄位 data-new="key"
+    function charPicker(key, label, { exclude = [], noMe = false } = {}) {
+        return `<div class="ca-pick" data-exclude="${esc(exclude.join(','))}" data-nome="${noMe ? 1 : 0}">
+            <input class="ca-input" data-pickq placeholder="${esc(label)}：打名字或別名" aria-label="${esc(label)}" autocomplete="off">
+            <input type="hidden" data-new="${key}" value="">
+            <div class="ca-pickopts"></div>
+        </div>`;
+    }
+    // 符合的人物：名字完全一樣的排最前面，再來是開頭相同、包含這幾個字的
+    function pickMatches(s, box, q) {
+        const n = norm(q);
+        if (!n) return [];
+        const ex = new Set((box.dataset.exclude || '').split(',').filter(Boolean));
+        const noMe = box.dataset.nome === '1';
+        const hits = [];
+        for (const c of Object.values(s.characters)) {
+            if (ex.has(c.id) || (noMe && isMe(c))) continue;
+            let best = null;
+            for (const [i, full] of [c.name, ...(c.aliases || [])].entries()) {
+                const f = norm(full);
+                const rank = f === n ? 0 : f.startsWith(n) ? 1 : f.includes(n) ? 2 : -1;
+                if (rank >= 0 && (!best || rank < best.rank)) best = { rank, via: i ? full : '' };
+            }
+            if (best) hits.push({ c, ...best });
+        }
+        return hits.sort((a, b) => a.rank - b.rank || a.c.name.localeCompare(b.c.name, 'zh-Hant')).slice(0, 8);
+    }
+    function updatePicker(box) {
+        const s = store();
+        const q = box.querySelector('[data-pickq]').value;
+        box.querySelector('input[type="hidden"]').value = '';
+        const hits = pickMatches(s, box, q);
+        box.querySelector('.ca-pickopts').innerHTML = !q.trim() ? ''
+            : hits.length ? hits.map((h) => `<button type="button" class="ca-pickopt" data-act="pick" data-id="${h.c.id}">${esc(h.c.name)}${h.via ? `<small>（${esc(h.via)}）</small>` : ''}</button>`).join('')
+                : '<span class="ca-muted">找不到這個人物</span>';
+    }
+    function choosePick(btn) {
+        const box = btn.closest('.ca-pick');
+        const c = store()?.characters[btn.dataset.id];
+        if (!box || !c) return;
+        box.querySelector('[data-pickq]').value = c.name;
+        box.querySelector('input[type="hidden"]').value = c.id;
+        box.querySelector('.ca-pickopts').innerHTML = '';
+    }
+    // 讀出選到的人物；沒點選但打的字只對得到一個人（或剛好是某人的全名／別名）時也算
+    function pickedId(key) {
+        const s = store();
+        const h = root.querySelector(`[data-new="${key}"]`);
+        const box = h?.closest('.ca-pick');
+        if (!h || !box) return '';
+        if (h.value && s.characters[h.value]) return h.value;
+        const hits = pickMatches(s, box, box.querySelector('[data-pickq]').value);
+        const exact = hits.filter((x) => x.rank === 0);
+        if (exact.length === 1) return exact[0].c.id;
+        return hits.length === 1 ? hits[0].c.id : '';
     }
 
     function relItem(s, r, kind) {
@@ -1876,8 +1940,6 @@
         const chars = Object.values(s.characters).sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'));
         const me = meChar(s);
         const mode = view.relMode === 'views' ? 'views' : 'links';
-        const options = chars.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
-        const fromOptions = chars.filter((c) => c !== me).map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
         const seg = `<div class="ca-seg" role="tablist">
                 <button class="ca-segbtn${mode === 'links' ? ' is-on' : ''}" data-act="relmode" data-mode="links">關係（${s.links.length}）</button>
                 <button class="ca-segbtn${mode === 'views' ? ' is-on' : ''}" data-act="relmode" data-mode="views">看法（${s.views.length}）</button>
@@ -1890,9 +1952,9 @@
             const add = chars.length >= 2 ? `<details class="ca-addrel">
                     <summary>＋ 新增一條關係</summary>
                     <div class="ca-addrow">
-                        <select class="ca-input" data-new="from" aria-label="誰">${options}</select>
+                        ${charPicker('from', '誰')}
                         <span>→</span>
-                        <select class="ca-input" data-new="to" aria-label="對誰">${options}</select>
+                        ${charPicker('to', '對誰')}
                     </div>
                     <input class="ca-input" data-new="label" placeholder="例如：友善、冷淡、陌生、故人之子">
                     <button class="ca-btn ca-primary" data-act="add-rel" data-kind="link">新增</button>
@@ -1914,9 +1976,9 @@
         const add = chars.length >= 2 ? `<details class="ca-addrel">
                 <summary>＋ 新增一則看法</summary>
                 <div class="ca-addrow">
-                    <select class="ca-input" data-new="from" aria-label="誰">${fromOptions}</select>
+                    ${charPicker('from', '誰', { noMe: true })}
                     <span>→</span>
-                    <select class="ca-input" data-new="to" aria-label="對誰">${options}</select>
+                    ${charPicker('to', '對誰')}
                 </div>
                 <textarea class="ca-input" data-new="desc" rows="2" placeholder="例如：表面恭敬，暗中提防"></textarea>
                 <button class="ca-btn ca-primary" data-act="add-rel" data-kind="view">新增</button>
@@ -2361,6 +2423,69 @@
         toast('已刪除');
     }
 
+    // 把 src 合併進 dst：名字和別名記成 dst 的別名，dst 空著的欄位補上，經歷、關係、看法都轉過去
+    async function mergeChar() {
+        const s = store();
+        const src = s?.characters[root.querySelector('.ca-detail')?.dataset.id];
+        const dst = s?.characters[pickedId('merge')];
+        if (!src) return;
+        if (!dst) { toast('請先選要合併進哪個人物', 'warning'); return; }
+        const unsaved = root.dataset.dirty === '1' ? '\n\n這一頁還沒儲存的修改會不見。' : '';
+        if (!confirm(`把「${src.name}」合併進「${dst.name}」嗎？\n\n「${src.name}」和它的別名會變成「${dst.name}」的別名；經歷、關係、看法會搬過去。兩邊都有內容的欄位保留「${dst.name}」的。（會先備份，可以從「紀錄」還原）${unsaved}`)) return;
+        snapshot(`合併人物：${src.name} → ${dst.name}`);
+        mergeCharInto(s, src, dst);
+        view.charId = dst.id;
+        await persist();
+        refreshInjection();
+        render();
+        renderChip();
+        toast(`已把「${src.name}」合併進「${dst.name}」`);
+    }
+    function mergeCharInto(s, src, dst) {
+        for (const a of [src.name, ...src.aliases]) {
+            const t = String(a ?? '').trim();
+            if (t && norm(t) !== norm(dst.name) && !dst.aliases.some((x) => norm(x) === norm(t))) dst.aliases.push(t);
+        }
+        for (const [k] of FIELDS) {
+            if (!dst[k] && src[k]) { dst[k] = src[k]; if (src.locks[k]) dst.locks[k] = true; }
+        }
+        const fl = (t) => (t.floor === null || t.floor === undefined || t.floor === '' ? Infinity : Number(t.floor));
+        dst.timeline = [...dst.timeline, ...src.timeline].sort((a, b) => fl(a) - fl(b));
+        if (fl({ floor: src.firstFloor }) < fl({ floor: dst.firstFloor })) dst.firstFloor = src.firstFloor;
+        if (src.isUser) { dst.isUser = true; delete dst.notUser; }
+        const re = (id) => (id === src.id ? dst.id : id);
+        for (const [list, key] of [['links', 'label'], ['views', 'desc']]) {
+            const kept = new Map();
+            for (const r of s[list]) {
+                r.from = re(r.from);
+                r.to = re(r.to);
+                if (r.from === r.to) continue;
+                const k = `${r.from}>${r.to}`;
+                const o = kept.get(k);
+                if (!o) { kept.set(k, r); continue; }
+                // 同一對有兩條：手動或鎖住的優先，再來是比較新的；另一條的內容留在過去的變化裡
+                const score = (x) => (x.manual || x.locked ? 1e9 : 0) + (Number(x.floor) || 0);
+                const [win, lose] = score(r) > score(o) ? [r, o] : [o, r];
+                win.history = [...win.history, ...lose.history, { floor: lose.floor, [key]: lose[key] }]
+                    .sort((a, b) => (Number(a.floor) || 0) - (Number(b.floor) || 0));
+                kept.set(k, win);
+            }
+            s[list] = [...kept.values()];
+        }
+        delete s.characters[src.id];
+        // 待確認的變動如果提到被合併的人，改成對方
+        for (const ent of Object.values(s.pending?.swipes || {})) {
+            for (const o of ent.ops || []) {
+                if (o.op !== 'add-char' && o.id === src.id) o.id = dst.id;
+                if (o.mergeInto === src.id) o.mergeInto = dst.id;
+                if (o.from === src.id) o.from = dst.id;
+                if (o.to === src.id) o.to = dst.id;
+                if (o.item) { o.item.from = re(o.item.from); o.item.to = re(o.item.to); }
+            }
+        }
+        purgeMyViews(s);
+    }
+
     const relTitle = (s, r) => `${charName(s, r.from)} → ${charName(s, r.to)}`;
     const relList = (s, kind) => (kind === 'link' ? s.links : s.views);
 
@@ -2409,8 +2534,8 @@
         const s = store();
         const get = (k) => root.querySelector(`[data-new="${k}"]`)?.value.trim();
         const isLink = kind === 'link';
-        const x = get('from');
-        const y = get('to');
+        const x = pickedId('from');
+        const y = pickedId('to');
         const val = get(isLink ? 'label' : 'desc');
         const field = isLink ? 'label' : 'desc';
         if (!x || !y || x === y) { toast('請選兩個不同的人物', 'warning'); return; }
@@ -2530,6 +2655,8 @@
             case 'save-rel': saveRel(b.closest('.ca-rel')); break;
             case 'del-rel': delRel(b.closest('.ca-rel')); break;
             case 'add-rel': addRel(b.dataset.kind); break;
+            case 'pick': choosePick(b); break;
+            case 'merge-char': mergeChar(); break;
             case 'relmode': view.relMode = b.dataset.mode; render(); break;
             case 'goto-rel': view.tab = 'relations'; view.relMode = b.dataset.mode; view.charId = null; render(); break;
             case 'restore': restoreTo(b.dataset.sid); break;
@@ -2596,6 +2723,7 @@
             if (sel) sel.innerHTML = modelOptions(t.value, settings().model);
             return;
         }
+        if (t.matches('[data-pickq]')) updatePicker(t.closest('.ca-pick'));
         if (t.matches('[data-filter]')) {
             const q = norm(t.value);
             root.querySelectorAll('.ca-body [data-search]').forEach((el) => {
@@ -2709,7 +2837,7 @@
         addSettingsDrawer();
         refreshInjection();
         setTimeout(renderChip, 500);
-        console.log(LOG, 'v0.7.11 loaded');
+        console.log(LOG, 'v0.7.12 loaded');
     }
 
     jQuery(() => {
